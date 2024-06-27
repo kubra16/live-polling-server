@@ -55,7 +55,7 @@ io.on("connection", (socket) => {
 
       try {
         await newPoll.save();
-        io.emit("newQuestion", questionData); // Broadcast new question to all clients
+        io.emit("newQuestion", questionData); // Broadcast new question to all students
         setTimeout(() => {
           currentQuestion = null;
           io.emit("updateResults", calculateResults(option));
