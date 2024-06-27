@@ -2,6 +2,24 @@ const express = require("express");
 const http = require("http");
 const socketIo = require("socket.io");
 const cors = require("cors");
+require("dotenv").config();
+
+const mongoose = require("mongoose");
+
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URL, {
+  useNewUrlParser: true,
+});
+const db = mongoose.connection;
+
+db.on("error", (err) => {
+  console.error("MongoDB connection error:", err);
+});
+db.once("open", () => {
+  console.log("Connected to MongoDB");
+});
+
+const Poll = require("./models/Poll");
 
 const app = express();
 const server = http.createServer(app);
@@ -21,19 +39,30 @@ let activeUsers = new Map();
 
 io.on("connection", (socket) => {
   console.log("New client connected", socket.id);
-
-  socket.on("askQuestion", (questionData) => {
+  socket.on("askQuestion", async (questionData) => {
     if (!currentQuestion) {
       currentQuestion = questionData;
+      const option = questionData.options;
       results = {};
-      console.log(currentQuestion);
-      const option = currentQuestion.options;
       studentsAnswer.clear();
-      io.emit("newQuestion", questionData);
-      setTimeout(() => {
-        currentQuestion = null;
-        io.emit("updateResults", calculateResults(option));
-      }, questionData.duration || 60000);
+
+      // Save question to MongoDB
+      const newPoll = new Poll({
+        question: currentQuestion.text,
+        options: currentQuestion.options,
+        results: {},
+      });
+
+      try {
+        await newPoll.save();
+        io.emit("newQuestion", questionData); // Broadcast new question to all clients
+        setTimeout(() => {
+          currentQuestion = null;
+          io.emit("updateResults", calculateResults(option));
+        }, questionData.duration || 60000);
+      } catch (error) {
+        console.error("Error saving new poll:", error);
+      }
     }
   });
 
@@ -121,18 +150,32 @@ io.on("connection", (socket) => {
 });
 
 const calculateResults = (options) => {
-  const total = Object.values(results).reduce((sum, count) => sum + count, 0);
+  const totalAnswers = Object.values(results).reduce(
+    (sum, count) => sum + count,
+    0
+  );
   const percentages = {};
   options.forEach((option) => {
-    percentages[option] = total ? ((results[option] || 0) / total) * 100 : 0;
+    const count = results[option] || 0;
+    percentages[option] = totalAnswers > 0 ? (count / totalAnswers) * 100 : 0;
   });
-  console.log(percentages);
-  console.log(total);
+
+  console.log("Results percentages:", percentages);
   return percentages;
 };
 
 app.get("/", (req, res) => {
   res.send("Server is running");
+});
+
+app.get("/previous-polls", async (req, res) => {
+  try {
+    const polls = await Poll.find({});
+    res.json(polls);
+  } catch (error) {
+    console.error("Error fetching previous polls:", error);
+    res.status(500).json({ error: "Failed to fetch previous polls" });
+  }
 });
 
 server.listen(5000, () => {
