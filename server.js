@@ -30,7 +30,13 @@ const io = socketIo(server, {
   },
 });
 
-app.use(cors());
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST"],
+    credentials: true,
+  })
+);
 
 let currentQuestion = null;
 let results = {};
